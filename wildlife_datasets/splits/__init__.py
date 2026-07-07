@@ -2,6 +2,7 @@ from .analysis import analyze_split, extract_data_split, recognize_id_split, rec
 from .balanced_split import BalancedSplit
 from .identity_split import ClosedSetSplit, DisjointSetSplit, FullSplit, IdentitySplit, OpenSetSplit
 from .lcg import Lcg
+from .minimal_gallery_split import MinimalGallerySplit
 from .time_aware_split import (
     RandomProportion,
     TimeAwareSplit,
@@ -9,4 +10,5 @@ from .time_aware_split import (
     TimeCutoffSplitAll,
     TimeProportionOpenSetSplit,
     TimeProportionSplit,
+    VideoDateProportionOpenSetSplit,
 )

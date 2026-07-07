@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from . import IdentitySplit
+from .identity_split import IdentitySplit
 
 
 class MinimalGallerySplit(IdentitySplit):

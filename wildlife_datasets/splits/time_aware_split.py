@@ -371,7 +371,7 @@ class VideoDateProportionOpenSetSplit(TimeAwareSplit):
         df['year'] = df['vid_date'].apply(lambda x: x.year).to_numpy()            
         return df
 
-    def split(self, df: pd.DataFrame) -> List[Tuple[np.ndarray, np.ndarray]]:
+    def split(self, df: pd.DataFrame) -> list[tuple[np.ndarray, np.ndarray]]:
         """Implementation of the [base splitting method](../reference_splits#splits.balanced_split.BalancedSplit.split).
 
         Args:
