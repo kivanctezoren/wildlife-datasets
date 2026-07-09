@@ -127,6 +127,9 @@ class ClosedSetSplit(IdentitySplit):
         individual_test = np.array([], dtype=object)
         return [self.general_split(df, individual_train, individual_test)]
 
+    def __str__(self):
+        return f"ClosedSetSplit(ratio_train={self.ratio_train})"
+
 
 class OpenSetSplit(IdentitySplit):
     """Open-set splitting method into training and testing sets.
@@ -206,6 +209,9 @@ class OpenSetSplit(IdentitySplit):
             individual_train = np.array(y_counts.index[:n_class_test])
             individual_test = np.array([], dtype=object)
         return [self.general_split(df, individual_train, individual_test)]
+    
+    def __str__(self):
+        return f"OpenSetSplit(ratio_train={self.ratio_train}, ratio_class_test={self.ratio_class_test}, n_class_test={self.n_class_test}, open_in_test={self.open_in_test})"
 
 
 class DisjointSetSplit(IdentitySplit):

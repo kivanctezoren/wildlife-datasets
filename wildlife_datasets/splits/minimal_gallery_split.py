@@ -31,3 +31,6 @@ class MinimalGallerySplit(IdentitySplit):
         idx_train = np.array(idx_train)
         
         return [(idx_train, idx_test)]
+
+    def __str__(self):
+        return f"MinimalGallerySplit(ratio_train={self.ratio_train})"

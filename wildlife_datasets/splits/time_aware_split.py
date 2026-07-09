@@ -87,6 +87,9 @@ class TimeProportionSplit(TimeAwareSplit):
                 idx_train += list(df_name.index)
         return [(np.array(idx_train), np.array(idx_test))]
 
+    def __str__(self):
+        return f"TimeProportionSplit(ratio={self.ratio})"
+
 
 class TimeProportionOpenSetSplit(TimeAwareSplit):
     """Time-proportion open set splitting method into training and testing sets.
@@ -196,6 +199,10 @@ class TimeProportionOpenSetSplit(TimeAwareSplit):
                     idx_train += list(df_name.index)
         return [(np.array(idx_train), np.array(idx_test))]
 
+    def __str__(self):
+        return f"TimeProportionOpenSetSplit(ratio_train={self.ratio_train}, ratio_class_test={self.ratio_class_test}," \
+            f" n_class_test={self.n_class_test})"
+
 
 class TimeCutoffSplit(TimeAwareSplit):
     """Time-cutoff non-random splitting method into training and testing sets.
@@ -236,6 +243,9 @@ class TimeCutoffSplit(TimeAwareSplit):
         else:
             idx_test = list(np.where(df["year"] >= self.year)[0])
         return [(np.array(df.index.values)[idx_train], np.array(df.index.values)[idx_test])]
+
+    def __str__(self):
+        return f"TimeCutoffSplit(year={self.year}, test_one_year_only={self.test_one_year_only})"
 
 
 class TimeCutoffSplitAll(TimeAwareSplit):
@@ -281,6 +291,9 @@ class TimeCutoffSplitAll(TimeAwareSplit):
             for split in splitter.split(df):
                 splits.append(split)
         return splits
+
+    def __str__(self):
+        return f"TimeCutoffSplitAll(test_one_year_only={self.test_one_year_only})"
 
 
 class RandomProportion:
@@ -442,3 +455,8 @@ class VideoDateProportionOpenSetSplit(TimeAwareSplit):
                 else:
                     idx_train += list(df_name.index)
         return [(np.array(idx_train), np.array(idx_test))]
+
+    def __str__(self):
+        return f"VideoDateProportionOpenSetSplit(ratio_train={self.ratio_train}," \
+            f" ratio_class_test={self.ratio_class_test}," \
+            f" n_class_test={self.n_class_test})"
