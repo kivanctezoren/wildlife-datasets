@@ -1,6 +1,11 @@
+import logging
+
 import numpy as np
 import pandas as pd
 import sklearn.metrics as skm
+
+
+logger = logging.getLogger(__name__)
 
 
 def unify_types(
@@ -213,6 +218,7 @@ def accuracy_known_samples(
     if sum(known) > 0:
         return np.mean(y_true[known] == y_pred[known])
     else:
+        logger.info("No known samples: accuracy_known_samples returns np.nan")
         return np.nan
 
 
@@ -242,6 +248,7 @@ def accuracy_unknown_samples(
     if sum(unknown) > 0:
         return np.mean(y_true[unknown] == y_pred[unknown])
     else:
+        logger.info("No unknown samples: accuracy_unknown_samples returns np.nan")
         return np.nan
 
 
