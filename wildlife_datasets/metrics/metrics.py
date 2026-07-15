@@ -307,8 +307,8 @@ def mean_average_precision(y_true: list, y_pred: list[list]):
 
 
 def auc_roc_new_class(
-    y_true: list,
-    y_score: list,
+    y_true: list[int] | list[str],
+    y_score: list[int],
     new_class: int | str,
 ) -> float:
     """Computes the area under ROC curve for detecting new individuals.
@@ -344,7 +344,7 @@ def BAKS(
 
     Args:
         y_true (List): List of true labels.
-        y_score (List): List of scores.
+        y_pred (List): List of predictions.
         identity_test_only (List): List of new identities (only in the testing set).
 
     Returns:
@@ -364,7 +364,7 @@ def BAKS(
         return np.nan
 
     # Check if the remaining types are compatible
-    unify_types(y_true_idx, y_pred_idx)
+    y_true_idx, y_pred_idx, _ = unify_types(y_true_idx, y_pred_idx)
     df = pd.DataFrame({"y_true": y_true_idx, "y_pred": y_pred_idx})
 
     # Compute the balanced accuracy
@@ -381,7 +381,7 @@ def BAUS(y_true: list, y_pred: list, identity_test_only: list, new_class: int | 
 
     Args:
         y_true (List): List of true labels.
-        y_score (List): List of scores.
+        y_pred (List): List of predictions.
         identity_test_only (List): List of new identities (only in the testing set).
         new_class (Union[int, str]): Name of the new class.
 
