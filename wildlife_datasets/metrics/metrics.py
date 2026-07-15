@@ -286,7 +286,7 @@ def average_precision(y_true: int | str, y_pred: list) -> float:
         Computed average precision.
     """
 
-    unify_types([y_true], y_pred)
+    y_true, y_pred, _ = unify_types([y_true], y_pred)
     a = np.array(y_pred) == y_true
     b = np.linspace(1, 0, len(y_pred))
     if sum(a) == 0:
