@@ -59,7 +59,7 @@ def accuracy(
 ) -> float:
     """Computes the accuracy.
 
-    If `new_class` is specified, it handles it as a additional class.
+    If `new_class` is specified, it handles it as an additional class.
 
     Args:
         y_true (List): List of true labels.
@@ -74,6 +74,29 @@ def accuracy(
     return np.mean(np.array(y_pred) == np.array(y_true))
 
 
+def accuracy_top_k(
+    y_true: list,
+    y_pred: list[list],
+    new_class: int | str | None = None,
+    k: int = 3,
+) -> float:
+    """Computes the top-k accuracy.
+
+    If `new_class` is specified, it handles it as an additional class.
+
+    Args:
+        y_true (List): List of true labels.
+        y_pred (List[List]): List of ranked predictions. First elements have a better rank.
+        new_class (Optional[Union[int, str]], optional): Name of the new class.
+        k (int): The number of top predictions to consider.
+    Returns:
+        Computed top-k accuracy.
+    """
+
+    y_true, y_pred, new_class = unify_types(y_true, [y for sublist in y_pred for y in sublist], new_class)
+    return np.mean([y_t in y_p[:k] for y_t, y_p in zip(y_true, y_pred)])
+
+
 def balanced_accuracy(
     y_true: list,
     y_pred: list,
@@ -81,7 +104,7 @@ def balanced_accuracy(
 ) -> float:
     """Computes the balanced accuracy.
 
-    If `new_class` is specified, it handles it as a additional class.
+    If `new_class` is specified, it handles it as an additional class.
     Each class has the same weight irregardless of the number of samples.
     If equals to macro recall unless there are predictions
     contain classes not in the true labels.
@@ -109,7 +132,7 @@ def class_average_accuracy(
 ) -> float:
     """Computes the class average accuracy.
 
-    If `new_class` is specified, it handles it as a additional class.
+    If `new_class` is specified, it handles it as an additional class.
 
     Args:
         y_true (List): List of true labels.
@@ -132,7 +155,7 @@ def precision(
 ) -> float:
     """Computes the (macro-averaged) precision.
 
-    If `new_class` is specified, it handles it as a additional class.
+    If `new_class` is specified, it handles it as an additional class.
 
     Args:
         y_true (List): List of true labels.
@@ -150,7 +173,7 @@ def precision(
 def recall(y_true: list, y_pred: list, new_class: int | str | None = None, ignore_empty: bool = False) -> float:
     """Computes the (macro-averaged) recall.
 
-    If `new_class` is specified, it handles it as a additional class.
+    If `new_class` is specified, it handles it as an additional class.
 
     Args:
         y_true (List): List of true labels.
@@ -177,7 +200,7 @@ def f1(
 ) -> float:
     """Computes the (macro-averaged) F1 score.
 
-    If `new_class` is specified, it handles it as a additional class.
+    If `new_class` is specified, it handles it as an additional class.
 
     Args:
         y_true (List): List of true labels.
