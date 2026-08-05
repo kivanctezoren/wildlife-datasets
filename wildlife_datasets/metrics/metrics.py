@@ -93,6 +93,10 @@ def accuracy_top_k(
         Computed top-k accuracy.
     """
 
+    # FIXME
+    logger.critical("accuracy_top_k may be falsely implemented (less than top1). Returning 0 for now.")
+    return 0.
+
     y_true, y_pred, new_class = unify_types(y_true, [y for sublist in y_pred for y in sublist], new_class)
     return np.mean([y_t in y_p[:k] for y_t, y_p in zip(y_true, y_pred)])
 
@@ -354,12 +358,18 @@ def auc_roc_new_class(
         new_class (Union[int, str]): Name of the new class.
 
     Returns:
-        Computed arena under ROC curve.
+        Computed area under ROC curve.
     """
+
+    b = -np.array(y_score)
+    if b.ndim != 1:  # Assert scores are top-1
+        # Allow shape (N,1)
+        if not (b.ndim == 2 and b.shape[1] == 1):
+            raise AssertionError("y_score must be 1D (top-1 scores), not top-k scores")
+        b = b.flatten()
 
     y_true, _, new_class = unify_types(y_true, [], new_class)
     a = np.array(y_true) == new_class
-    b = -np.array(y_score)
     return skm.roc_auc_score(a, b)
 
 
