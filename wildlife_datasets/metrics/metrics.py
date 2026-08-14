@@ -93,11 +93,16 @@ def accuracy_top_k(
         Computed top-k accuracy.
     """
 
-    # FIXME
-    logger.critical("accuracy_top_k may be falsely implemented (less than top1). Returning 0 for now.")
-    return 0.
-
-    y_true, y_pred, new_class = unify_types(y_true, [y for sublist in y_pred for y in sublist], new_class)
+    y_pred_np = np.array(y_pred)
+    shape = y_pred_np.shape
+    if len(shape) != 2:
+        raise AssertionError(f"y_pred must be 2D (top-k predictions), not {len(shape)}D")
+    
+    y_true, y_pred_flat, new_class = unify_types(y_true, y_pred_np.flat, new_class)
+    y_pred = np.array(y_pred_flat).reshape(shape)
+    if k > y_pred.shape[1]:
+        raise AssertionError(f"k={k} is larger than the number of predictions={y_pred.shape[1]}")
+    
     return np.mean([y_t in y_p[:k] for y_t, y_p in zip(y_true, y_pred)])
 
 
