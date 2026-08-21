@@ -211,7 +211,8 @@ class OpenSetSplit(IdentitySplit):
         return [self.general_split(df, individual_train, individual_test)]
     
     def __str__(self):
-        return f"OpenSetSplit(ratio_train={self.ratio_train}, ratio_class_test={self.ratio_class_test}, n_class_test={self.n_class_test}, open_in_test={self.open_in_test})"
+        return f"OpenSetSplit(ratio_train={self.ratio_train}, ratio_class_test={self.ratio_class_test}," \
+            f" n_class_test={self.n_class_test}, open_in_test={self.open_in_test})"
 
 
 class DisjointSetSplit(IdentitySplit):
