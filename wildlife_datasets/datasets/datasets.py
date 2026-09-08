@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import warnings
 from collections.abc import Callable, Sequence
@@ -8,6 +9,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 
 import matplotlib.pyplot as plt
+import networkx as nx
 import numpy as np
 import pandas as pd
 import pycocotools.mask as mask_coco
@@ -15,6 +17,8 @@ from matplotlib.figure import Figure
 from PIL import Image
 
 from . import utils
+
+logger = logging.getLogger(__name__)
 
 
 class WildlifeDataset:
@@ -31,6 +35,7 @@ class WildlifeDataset:
       saved_to_system_folder (bool): Specifies whether dataset is saved to system (hidden) folders.
       remove_columns (bool): Specifies whether constant columns are removed in `finalize_catalogue`.
       check_files (bool): Specifies whether files should be checks for existence in `finalize_catalogue`.
+      check_file_names (bool): Specifies whether file names should be checked for problematic characters in `finalize_catalogue`.
       transform (Callable): Applied transform when loading the image.
       img_load (str): Applied transform when loading the image.
       labels_string (List[str]): List of labels in strings.
@@ -63,6 +68,7 @@ class WildlifeDataset:
         remove_unknown: bool = False,
         remove_columns: bool = False,
         check_files: bool = True,
+        check_file_names: bool = True,
         load_label: bool = False,
         factorize_label: bool = False,
         col_path: str = "path",
@@ -83,6 +89,7 @@ class WildlifeDataset:
             remove_unknown (bool, optional): Whether unknown identities should be removed.
             remove_columns (bool, optional): Whether constant columns are removed in `finalize_catalogue`.
             check_files (bool, optional): Whether files should be checks for existence in `finalize_catalogue`.
+            check_file_names (bool, optional): Whether file names should be checked for problematic characters in `finalize_catalogue`.
             load_label (bool, optional): Whether dataset[k] should return only image or also identity.
             factorize_label (bool, optional): Whether labels are returned factorized (intergers) or original (possibly strings).
             col_path (str, optional): Column name containing image paths.
@@ -101,6 +108,7 @@ class WildlifeDataset:
         self.col_label = col_label
         self.remove_columns = remove_columns
         self.check_files = check_files
+        self.check_file_names = check_file_names
         # If df is not provided, create it
         if df is None:
             df = self.create_catalogue(**kwargs)
@@ -109,7 +117,8 @@ class WildlifeDataset:
                 warnings.warn(
                     "This dataset is not fully determined by its dataframe, so recreating it from df may be incomplete."
                 )
-        assert df is not None
+        if df is None:
+            raise ValueError(f"{self.__class__.__name__}.create_catalogue must return a pd.DataFrame, got None.")
 
         if remove_unknown:
             df = df[df[self.col_label] != self.unknown_name]
@@ -183,23 +192,22 @@ class WildlifeDataset:
             return img
 
     def compute_attributes(self) -> None:
+        if self.col_label not in self.df.columns:
+            raise ValueError(f"{self.col_label} must be in metadata columns")
         self.labels, self.labels_map = pd.factorize(self.df[self.col_label].to_numpy())
 
-    def get_subset(self, idx: list[int] | list[bool]) -> WildlifeDataset:
+    def get_subset(self, idx: list[int] | list[bool] | pd.Series | pd.Index) -> WildlifeDataset:
         """Returns a subset of the class.
 
         Args:
-            idx (Union[List[int], List[bool]]): Indices in the dataframe of the subset.
+            idx (list[int] | list[bool] | pd.Series | pd.Index): Indices or boolean mask of the subset.
 
         Returns:
             The subset class.
         """
 
         dataset = deepcopy(self)
-        if len(self) == len(idx):
-            dataset.df = dataset.df[idx].reset_index(drop=True)
-        else:
-            dataset.df = dataset.df.loc[idx].reset_index(drop=True)
+        dataset.df = dataset.df.loc[idx].reset_index(drop=True)
         dataset.compute_attributes()
         return dataset
 
@@ -209,9 +217,20 @@ class WildlifeDataset:
         else:
             return path
 
+    def get_root(self) -> str:
+        """Returns `self.root`, raising if it was not provided.
+
+        Returns:
+            The dataset root directory.
+        """
+
+        if self.root is None:
+            raise ValueError("`root` must be provided for this operation.")
+        return self.root
+
     def set_absolute_paths(self) -> None:
         if self.root is not None:
-            self.df["path"] = self.root + os.path.sep + self.df["path"]
+            self.df[self.col_path] = self.root + os.path.sep + self.df[self.col_path]
             self.root = None
 
     def get_image(self, idx: int) -> Image.Image:
@@ -255,14 +274,14 @@ class WildlifeDataset:
             return segmentation
 
         if isinstance(segmentation, str):
-            assert self.root is not None
-            m = np.asfortranarray(utils.load_image(os.path.join(self.root, segmentation)))
+            root = self.get_root()
+            m = np.asfortranarray(utils.load_image(os.path.join(root, segmentation)))
             if m.ndim == 3:
                 m = m[:, :, 0]
             return mask_coco.encode(m)
 
         if not np.any(pd.isnull(segmentation)):
-            raise Exception("Segmentation type not recognized")
+            raise ValueError("Segmentation type not recognized")
 
         return segmentation
 
@@ -378,8 +397,7 @@ class WildlifeDataset:
 
         already_downloaded = os.path.exists(mark_file_name)
         if not cls.saved_to_system_folder and already_downloaded and not force:
-            print(f"DATASET {dataset_name}: DOWNLOADING STARTED.")
-            print(cls.download_warning)
+            logger.warning(f"DATASET {dataset_name}: {cls.download_warning}")
         else:
             print(f"DATASET {dataset_name}: DOWNLOADING STARTED.")
             cls.download(root, force=force, **kwargs)
@@ -403,8 +421,7 @@ class WildlifeDataset:
         if cls.saved_to_system_folder:
             cls._download(**kwargs)
         elif already_downloaded and not force:
-            print(f"DATASET {dataset_name}: DOWNLOADING STARTED.")
-            print(cls.download_warning)
+            logger.warning(f"DATASET {dataset_name}: {cls.download_warning}")
         else:
             if os.path.exists(mark_file_name):
                 os.remove(mark_file_name)
@@ -492,15 +509,72 @@ class WildlifeDataset:
 
         Args:
             df (pd.DataFrame): A full dataframe of the data.
-            replace_identity (List[Tuple]): List of (old_identity, new_identity)
+            replace_identity (list[tuple]): List of (old_identity, new_identity)
             col (str, optional): Column to replace in.
 
         Returns:
             A full dataframe of the data.
         """
 
+        identity_source = [old_identity for old_identity, _ in replace_identity]
+        if len(set(identity_source)) != len(identity_source):
+            raise ValueError("Identity changes are not unique")
+
+        mapping = dict(replace_identity)
+
+        def resolve(identity, visited):
+            if identity in visited:
+                raise ValueError(f"Cycle detected involving '{identity}'")
+            if identity not in mapping:
+                return identity
+            return resolve(mapping[identity], visited | {identity})
+
+        replace_identity = [(identity, resolve(identity, set())) for identity in mapping]
+
+        df = df.copy()
         for old_identity, new_identity in replace_identity:
             df[col] = df[col].replace({old_identity: new_identity})
+        return df
+
+    def fix_labels_group_identity(
+        self, df: pd.DataFrame, replace_identity: list[tuple], col: str = "identity"
+    ) -> pd.DataFrame:
+        """Replaces identities by merging connected groups.
+
+        Each tuple represents identities that should be considered equivalent.
+        For example:
+            [(1, 2, 3), (3, 4), (7, 8)]
+
+        results in the mappings:
+            1,2,3,4 -> 1
+            7,8 -> 7
+
+        Args:
+            df (pd.DataFrame): A full dataframe of the data.
+            replace_identity (List[Tuple]): List of (identity1, identity2, ...) to be merged.
+            col (str, optional): Column to replace in.
+
+        Returns:
+            A full dataframe of the data.
+        """
+
+        graph = nx.Graph()
+        for group in replace_identity:
+            if len(group) == 0:
+                continue
+            graph.add_nodes_from(group)
+            graph.add_edges_from(zip(group[:-1], group[1:]))
+
+        mapping = {}
+        for component in nx.connected_components(graph):
+            representative = min(component)
+            if representative not in set(df[col]):
+                raise ValueError(f"Representative '{representative}' not found in column '{col}'.")
+            for node in component:
+                mapping[node] = representative
+
+        df = df.copy()
+        df[col] = df[col].replace(mapping)
         return df
 
     def fix_labels_remove_identity(
@@ -537,6 +611,7 @@ class WildlifeDataset:
             A full dataframe of the data.
         """
 
+        df = df.copy()
         for image_name, old_identity, new_identity in replace_identity:
             n_replaced = 0
             for index, df_row in df.iterrows():
@@ -545,9 +620,9 @@ class WildlifeDataset:
                     df.loc[index, col] = new_identity
                     n_replaced += 1
             if n_replaced == 0:
-                print(f"File name {image_name} with identity {old_identity} was not found.")
+                logger.warning(f"File name {image_name} with identity {old_identity} was not found.")
             elif n_replaced > 1:
-                print(f"File name {image_name} with identity {old_identity} was found multiple times.")
+                logger.warning(f"File name {image_name} with identity {old_identity} was found multiple times.")
         return df
 
     def finalize_catalogue(
@@ -567,9 +642,7 @@ class WildlifeDataset:
             A full dataframe of the data, slightly modified.
         """
 
-        if df is None:
-            df = self.df
-        assert df is not None
+        df = self.df if df is None else df
         if self.update_wrong_labels:
             df = self.fix_labels(df)
         self.rename_column(df, "path", self.col_path)
@@ -582,15 +655,18 @@ class WildlifeDataset:
         self.check_unique_id(df)
         if self.check_files:
             self.check_files_exist(df[self.col_path])
-            self.check_files_names(df[self.col_path])
             if "segmentation" in df.columns:
                 self.check_files_exist(df["segmentation"])
+        if self.check_file_names:
+            self.check_files_names(df[self.col_path])
         return df
 
     def rename_column(self, df: pd.DataFrame, name_old, name_new):
         if name_old != name_new:
             if name_new in df.columns:
-                raise Exception(f"Column {name_old} already present in dataframe. Cannot rename {name_old} to it.")
+                raise ValueError(f"Column {name_old} already present in dataframe. Cannot rename {name_old} to it.")
+            elif name_old not in df.columns:
+                raise ValueError(f"Column {name_new} not present in dataframe. Cannot rename it.")
             else:
                 return df.rename({name_old: name_new}, axis=1, inplace=True)
 
@@ -601,12 +677,10 @@ class WildlifeDataset:
             df (Optional[pd.DataFrame], optional): A full dataframe of the data.
         """
 
-        if df is None:
-            df = self.df
-        assert df is not None
+        df = self.df if df is None else df
         for col_name in ["image_id", self.col_label, self.col_path]:
             if col_name not in df.columns:
-                raise Exception(f"Column {col_name} must be in the dataframe columns.")
+                raise ValueError(f"Column {col_name} must be in the dataframe columns.")
 
     def check_types_columns(self, df: pd.DataFrame | None = None) -> None:
         """Checks if columns are in correct formats.
@@ -620,9 +694,7 @@ class WildlifeDataset:
             df (Optional[pd.DataFrame], optional): A full dataframe of the data.
         """
 
-        if df is None:
-            df = self.df
-        assert df is not None
+        df = self.df if df is None else df
         requirements = [
             ("image_id", ["int", "str"]),
             (self.col_label, ["int", "str"]),
@@ -682,7 +754,7 @@ class WildlifeDataset:
                 return None
             except Exception:
                 pass
-        raise Exception(f"Column {col_name} has wrong type. Allowed types = {allowed_types}")
+        raise ValueError(f"Column {col_name} has wrong type. Allowed types = {allowed_types}")
 
     def reorder_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """Reorders rows and columns in the dataframe.
@@ -730,9 +802,7 @@ class WildlifeDataset:
             A full dataframe of the data, slightly modified.
         """
 
-        if df is None:
-            df = self.df
-        assert df is not None
+        df = self.df if df is None else df
         drop_cols = [c for c in df.columns if df[c].astype(str).nunique() == 1]
         return df.drop(columns=drop_cols)
 
@@ -743,11 +813,9 @@ class WildlifeDataset:
             df (Optional[pd.DataFrame], optional): A full dataframe of the data.
         """
 
-        if df is None:
-            df = self.df
-        assert df is not None
+        df = self.df if df is None else df
         if len(df["image_id"].unique()) != len(df):
-            raise Exception("Image ID not unique.")
+            raise ValueError("Image ID not unique.")
 
     def check_files_exist(self, col: pd.Series | str | None = None) -> None:
         """Checks if paths in a given column exist.
@@ -760,16 +828,13 @@ class WildlifeDataset:
             col = self.df[self.col_path]
         elif isinstance(col, str):
             col = self.df[col]
-        assert col is not None
         bad_paths = []
         for path in col:
             if isinstance(path, str) and not os.path.exists(self.get_absolute_path(path)):
                 bad_paths.append(path)
         if len(bad_paths) > 0:
-            print("The following non-existing images were identified.")
-            for path in bad_paths:
-                print(path)
-            raise Exception("Some files not found")
+            logger.warning("The following non-existing images were identified: %s", bad_paths)
+            raise FileNotFoundError("Some files not found")
 
     def check_files_names(self, col: pd.Series | str | None = None) -> None:
         """Checks if paths contain characters which may cause issues.
@@ -782,7 +847,6 @@ class WildlifeDataset:
             col = self.df[self.col_path]
         elif isinstance(col, str):
             col = self.df[col]
-        assert col is not None
         bad_names = []
         for path in col:
             if not isinstance(path, str):
@@ -792,10 +856,8 @@ class WildlifeDataset:
             except UnicodeEncodeError:
                 bad_names.append(path)
         if len(bad_names) > 0:
-            print("The following not ISO-8859-1 file names were identified.")
-            for path in bad_names:
-                print(path)
-            raise Exception("Non ISO-8859-1 characters in path may cause problems. Please change them.")
+            logger.warning("The following not ISO-8859-1 file names were identified: %s", bad_names)
+            raise ValueError("Non ISO-8859-1 characters in path may cause problems. Please change them.")
 
     def plot_grid(
         self,
@@ -871,7 +933,7 @@ class WildlifeDataset:
         if header_cols is not None:
             offset_h = 30
             if len(header_cols) != n_cols:
-                raise Exception("Length of header_cols must be the same as n_cols.")
+                raise ValueError("Length of header_cols must be the same as n_cols.")
         else:
             offset_h = 0
 

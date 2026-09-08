@@ -1,15 +1,15 @@
+from __future__ import annotations
+
+import logging
 import os
 import re
+import unicodedata
 from collections.abc import Callable, Sequence
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pandas as pd
 import requests
-from docx import Document
-from docx.shared import Pt
-from docx.styles.style import ParagraphStyle
-from docx.text.paragraph import Paragraph
 from tqdm import tqdm
 
 from ..detection import load_segmentation as utils_load_segmentation
@@ -17,6 +17,11 @@ from .datasets import WildlifeDataset, utils
 from .downloads import DownloadPrivate
 from .general import Dataset_Metadata
 from .utils import strip_suffixes
+
+if TYPE_CHECKING:
+    from docx.text.paragraph import Paragraph
+
+logger = logging.getLogger(__name__)
 
 identity_replace = {
     "": np.nan,
@@ -154,10 +159,42 @@ def get_code(xs: Sequence[str], name: str = "variables") -> str | None:
         return None
 
 
+transliterate_extra = {
+    "ł": "l",
+    "Ł": "L",
+    "ø": "o",
+    "Ø": "O",
+    "đ": "d",
+    "Đ": "D",
+    "þ": "th",
+    "Þ": "Th",
+    "ð": "d",
+    "Ð": "D",
+    "ß": "ss",
+    "æ": "ae",
+    "Æ": "AE",
+    "œ": "oe",
+    "Œ": "OE",
+}
+
+
+def transliterate(x: str) -> str:
+    for char, replacement in transliterate_extra.items():
+        x = x.replace(char, replacement)
+    x = unicodedata.normalize("NFKD", x)
+    # Accents and invisible format characters are expected to be dropped
+    base_chars = "".join(c for c in x if not unicodedata.combining(c) and unicodedata.category(c) != "Cf")
+    try:
+        base_chars.encode("ascii")
+    except UnicodeEncodeError:
+        logger.warning("Characters dropped during transliteration of %r", x)
+    return x.encode("ascii", "ignore").decode("ascii")
+
+
 def fix_identity(x: str | None, individuals: list[str]) -> str | None:
     if pd.isnull(x):
         return x
-    x = x.strip().lower()
+    x = transliterate(x.strip().lower())
     if x.startswith("no id") or x.startswith("noid"):
         return "unknown"
 
@@ -281,9 +318,14 @@ def info_to_code(
 
 
 class TurtlewatchEgypt_Base(DownloadPrivate, WildlifeDataset):
+    def __init__(self, *args, check_file_names: bool = False, **kwargs) -> None:
+        # Image file names in this dataset contain non-ISO-8859-1 characters
+        super().__init__(*args, check_file_names=check_file_names, **kwargs)
+
     def extract_info(self, i: int) -> tuple[str | None, ...]:
         path = self.df.at[i, "path"]
-        assert isinstance(path, str)
+        if not isinstance(path, str):
+            raise TypeError(f"Expected a str path, got {type(path)}.")
         return code_to_info(path.split(os.path.sep)[-1], self.individuals)
 
     def extract_code(self, i: int) -> str:
@@ -302,20 +344,26 @@ class TurtlewatchEgypt_Base(DownloadPrivate, WildlifeDataset):
             file_name = f"{os.path.dirname(os.path.abspath(__file__))}/individuals.csv"
         if not os.path.exists(file_name):
             raise ValueError(f"File does not exist: {file_name}")
-        individuals = pd.read_csv(file_name)
-        individuals = individuals["Common_name"].to_numpy()
+        data = pd.read_csv(file_name)
+        individuals = data["Common_name"].to_numpy()
         individuals = [x.lower().strip() for x in individuals]
-        self.individuals = [strip_suffixes(x, [" C", " (DEAD)"]) for x in individuals]
+        individuals_fixed = [fix_identity(x.lower(), individuals) for x in individuals]
+        species = data["Species"].to_numpy()
+        species = [x.lower().strip() for x in species]
+        individuals = [strip_suffixes(x, [" C", " (DEAD)"]) for x in individuals]
+        self.individuals_to_species = {x: y for x, y in zip(individuals_fixed, species)}
+        self.individuals = [transliterate(x) for x in individuals]
 
 
 class TurtlewatchEgypt_Master(TurtlewatchEgypt_Base):
     def create_catalogue(self, load_segmentation: bool = False, file_name: str | None = None) -> pd.DataFrame:
-        assert self.root is not None
+        root = self.get_root()
         self.load_individuals(file_name=file_name)
-        data = utils.find_images(self.root)
+        data = utils.find_images(root)
 
         # Get identity
         data["identity"] = data["file"].apply(lambda x: fix_identity(x.lower(), self.individuals))
+        data["species"] = data["identity"].apply(lambda x: self.individuals_to_species.get(x, np.nan))
 
         # Get orientation
         data["date"] = data["file"].apply(lambda x: code_to_info(os.path.basename(x), self.individuals)[3])
@@ -335,16 +383,16 @@ class TurtlewatchEgypt_Master(TurtlewatchEgypt_Base):
         # Finalize the dataframe
         data = data.drop("file", axis=1)
         if load_segmentation:
-            data = utils_load_segmentation(data, os.path.join(self.root, "segmentation.csv"))
+            data = utils_load_segmentation(data, os.path.join(root, "segmentation.csv"))
         return self.finalize_catalogue(data)
 
 
 class TurtlewatchEgypt_New(TurtlewatchEgypt_Base):
     def create_catalogue(self, load_segmentation: bool = False, file_name: str | None = None) -> pd.DataFrame:
 
-        assert self.root is not None
+        root = self.get_root()
         self.load_individuals(file_name=file_name)
-        data = utils.find_images(self.root)
+        data = utils.find_images(root)
 
         # Ignoring data starting with '.'
         mask = data["file"].str.startswith(".")
@@ -358,7 +406,8 @@ class TurtlewatchEgypt_New(TurtlewatchEgypt_Base):
         idx = data["encounter_name"].isnull()
         if sum(idx) > 0:
             for folder, df_folder in data[idx].groupby("path"):
-                assert isinstance(folder, str)
+                if not isinstance(folder, str):
+                    raise TypeError(f"Expected a str folder name, got {type(folder)}.")
                 data.loc[df_folder.index, "encounter_name"] = folder.lower()
 
         # Sort data
@@ -367,7 +416,8 @@ class TurtlewatchEgypt_New(TurtlewatchEgypt_Base):
 
         # Get encounter_id
         data["encounter_id"] = (data["encounter_name"] != data["encounter_name"].shift()).cumsum()
-        assert data["encounter_id"].nunique() == data["encounter_name"].nunique()
+        if data["encounter_id"].nunique() != data["encounter_name"].nunique():
+            raise ValueError("encounter_id and encounter_name do not correspond to the same grouping.")
 
         # Preallocate columns to be able to handle strings and nans without warnings
         data["identity"] = pd.Series([None] * len(data), dtype="object")
@@ -400,6 +450,9 @@ class TurtlewatchEgypt_New(TurtlewatchEgypt_Base):
             data.loc[df_encounter.index, "author"] = get_code(authors, name="authors")
             data.loc[df_encounter.index, "date"] = get_code(dates, name="dates")
 
+        # Add species
+        data["species"] = data["identity"].apply(lambda x: self.individuals_to_species.get(x, np.nan))
+
         # Fix the column names
         data = data.reset_index(drop=True)
         data = data.drop(["path", "file", "encounter_name"], axis=1)
@@ -413,7 +466,7 @@ class TurtlewatchEgypt_New(TurtlewatchEgypt_Base):
 
         # Load segmentation
         if load_segmentation:
-            data = utils_load_segmentation(data, os.path.join(self.root, "segmentation.csv"))
+            data = utils_load_segmentation(data, os.path.join(root, "segmentation.csv"))
         return self.finalize_catalogue(data)
 
 
@@ -424,15 +477,13 @@ class TurtlewatchEgypt_New(TurtlewatchEgypt_Base):
 
 class TurtlewatchEgypt_Citizen(Dataset_Metadata):
     @classmethod
-    def _download(cls, data: pd.DataFrame | None = None, transform: Callable | None = None) -> None:
+    def _download(cls, data: pd.DataFrame, transform: Callable[[pd.DataFrame], pd.DataFrame] | None = None) -> None:
         img_extensions = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".tiff", ".raw")
 
         # Transform the data into the required form
-        assert data is not None
         data = load_citizen_data(data)
         if transform is not None:
             data = transform(data)
-        assert isinstance(data, pd.DataFrame)
 
         # Go through the rows and download data
         metadata = pd.DataFrame()
@@ -446,7 +497,7 @@ class TurtlewatchEgypt_Citizen(Dataset_Metadata):
             save_paths = [os.path.relpath(p, ".") for p in save_paths]
             save_paths_images = [x for x in save_paths if x.lower().endswith(img_extensions)]
             for x in set(save_paths).difference(set(save_paths_images)):
-                print(f"File non-image: {x}")
+                logger.warning(f"File non-image: {x}")
 
             create_info(d, folder_full)
 
@@ -511,9 +562,9 @@ def download_files(urls: list[str], download_folder: str) -> list[str]:
                 with open(save_path, "wb") as f:
                     f.write(response.content)
             else:
-                print(f"Failed: {url}")
+                logger.warning(f"Failed: {url}")
         except Exception as e:
-            print(f"Error downloading {url}: {e}")
+            logger.warning(f"Error downloading {url}: {e}")
     return save_paths
 
 
@@ -528,6 +579,16 @@ def add_run_break(p: Paragraph, text1: str, text2: str | None = None) -> None:
 
 
 def create_info(d: pd.Series, save_folder: str) -> None:
+    try:
+        from docx import Document
+        from docx.shared import Pt
+        from docx.styles.style import ParagraphStyle
+    except ImportError as e:
+        raise ImportError(
+            "Downloading TurtlewatchEgypt_Citizen requires python-docx. "
+            "Install it via: pip install wildlife_datasets[full]"
+        ) from e
+
     doc = Document()
     style = doc.styles["Normal"]
     style = cast(ParagraphStyle, style)

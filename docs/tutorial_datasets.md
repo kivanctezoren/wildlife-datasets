@@ -1,12 +1,16 @@
 ```python exec="true" session="run" keep_print="True"
-import contextlib, io
+import io, sys
 
-def run(str):
-    f = io.StringIO()
-    with contextlib.redirect_stdout(f):
-        eval(str)
-    output = f.getvalue()
-    return output
+_stdout_stack = []
+
+def _quiet_start():
+    _stdout_stack.append(sys.stdout)
+    sys.stdout = io.StringIO()
+
+def _quiet_stop():
+    buf = sys.stdout
+    sys.stdout = _stdout_stack.pop()
+    return buf.getvalue()
 
 def print_array(x):
     if isinstance(x, dict):
@@ -61,7 +65,7 @@ When a dataset is already downloaded, it can be loaded
 d = datasets.MacaqueFaces('data/MacaqueFaces')
 ```
 
-Since this a subclass of the `WildlifeDataset` parent class, it inherits all the methods and attributes listed in its [documentation](./reference_datasets.md). Its main component is the [pandas dataframe](./dataframe.md) of all samples
+Since this a subclass of the `WildlifeDataset` parent class, it inherits all the methods and attributes. Its main component is the [pandas dataframe](./dataframe.md) of all samples
 
 ```python exec="true" source="above" result="console" session="run"
 d.df
@@ -79,9 +83,9 @@ d.plot_grid()
 or its basic numerical statistics can be printed
 
 ```python exec="true" source="above" result="console" session="run"
+_quiet_start() # markdown-exec: hide
 analysis.display_statistics(d.df)
-
-print(run('analysis.display_statistics(d.df)')) # markdown-exec: hide
+print(_quiet_stop()) # markdown-exec: hide
 ```
 
 or [metadata](./dataframe.md#metadata) displayed
