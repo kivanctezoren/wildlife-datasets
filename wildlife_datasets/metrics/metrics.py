@@ -300,6 +300,7 @@ def normalized_accuracy(y_true: list, y_pred: list, new_class: int | str, mu: fl
         Computed normalized accuracy.
     """
 
+    assert 0 <= mu <= 1, "mu must be in [0, 1]"
     aks = accuracy_known_samples(y_true, y_pred, new_class)
     aus = accuracy_unknown_samples(y_true, y_pred, new_class)
     return mu * aks + (1 - mu) * aus
