@@ -988,6 +988,10 @@ class WildlifeDataset:
                 plt.text(pos_x, pos_y, str(header), color=color, ha=ha, va=va, **kwargs)
         return fig
 
+    def __hash__(self):
+        """Return a hash of the dataset catalogue, which can be used to check if the dataset has changed."""
+        return hash(pd.util.hash_pandas_object(self.df).sum())
+
 
 # Alias for WildlifeDataset
 class DatasetFactory(WildlifeDataset):
