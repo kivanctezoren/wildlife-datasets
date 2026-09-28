@@ -315,10 +315,10 @@ class RandomProportion:
 class VideoDateProportionOpenSetSplit(TimeAwareSplit):
     """Time-proportion open set splitting method into training and testing sets.
 
-    Mostly copied from TimeProportionOpenSetSplit from wildlife_datasets
+    Mostly copied from TimeProportionOpenSetSplit from wildlife_datasets.
 
-    First, it pust some individuals into the training set only.
-    Then it is the TimeProportionSplit.
+    First, it some individuals are selected for the test set only.
+    Then, the time-proportional split is applied as usual.
     """
 
     def __init__(
